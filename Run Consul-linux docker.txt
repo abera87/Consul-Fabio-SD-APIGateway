@@ -1,0 +1,61 @@
+#run consul 
+docker run -d -p 8500:8500 -p 8600:8600/udp --name=badger consul agent -server -ui -node=server-1 -bootstrap-expect=1 -client=0.0.0.0
+
+#run fabio api gateway  
+docker run -d -p 9998:9998 -p 9999:9999 --name fabiolb fabiolb/fabio -e 'FABIO_REGISTRY_CONSUL_ADDR=badger:8500' -e 'RABIO_PROXY_STRATEGY=rnd'
+-registry.consul.addr=172.17.0.2:8500
+-proxy.strategy=rr
+# extract docker container IP address
+docker run -p 9998:9998 -p 9999:9999 --name fabiolb fabiolb/fabio -registry.consul.addr=172.17.0.2:8500 -proxy.strategy=rr
+
+
+# provide consul details (name:port)
+# provide load balancing alrogith rr-> round robun, rnd-> dynamic round robin(advanced)
+docker run -d -p 9998:9998 -p 9999:9999 --name fabiolb fabiolb/fabio -e FABIO_REGISTRY_CONSUL_ADDR=consul:8500 -e RABIO_PROXY_STRATEGY=rnd
+
+
+# build sample web api image
+docker build -t order-service-test-img .
+
+#build layered project solution from .sln location
+docker build -t order-service-test-img -f OrderService/Dockerfile .
+
+# run docker image in container webapi
+docker run -d -p 5000:80 --name order-service-api order-service-test
+
+# run docker image in container webapi
+docker run -d -p 5000:80 --name order-service-api --hostname orderserviceapi01 order-service-test-img
+
+docker run -d -p 5001:80 --name order-service-api1 --hostname orderserviceapi01 order-service-test-img
+docker run -d -p 5002:80 --name order-service-api2 --hostname orderserviceapi02 order-service-test-img
+docker run -d -p 5003:80 --name order-service-api3 --hostname orderserviceapi03 order-service-test-img
+docker run -d -p 5004:80 --name order-service-api4 --hostname orderserviceapi04 order-service-test-img
+
+
+# build API Gateway
+docker build -t apigateway-img .
+
+# container for API gateway
+docker run  -p 5000:80 --name apigateway --hostname apigateway01 apigateway-img
+
+# create docker service with replicas
+docker service create --name orderserviceapiservice --replicas 3 order-service-test-img dotnet OrderService.dll
+
+# scale service
+docker service update --replicas 5 orderserviceapiservice 
+
+# scale service to zero (0) to stop all underlaying container
+docker service update --replicas 0 orderserviceapiservice 
+
+
+# deregister saervice from consul
+$ curl \
+--request PUT \
+https://consul.rocks/v1/agent/service/deregister/my-service-id
+
+-- request PUT
+http://localhost/v1/agent/service/deregister/OrderService-7896bdeb-8f6e-4255-8f07-746f94fe6c6e
+
+#Fabio LB
+get routes
+http://localhost:9998/api/routes
